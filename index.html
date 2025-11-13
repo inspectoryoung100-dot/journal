@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Forex Trading Journal — Calendar View</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { padding: 1.5rem; background:#f8f9fa; }
+    .card { box-shadow: 0 6px 18px rgba(0,0,0,.04); }
+    textarea { resize: vertical; }
+    .small-muted { font-size: .85rem; color: #6c757d; }
+    .cal-day { height:110px; border:1px solid #e9ecef; padding:6px; cursor:pointer; overflow:hidden; display:flex; flex-direction:column; justify-content:space-between;}
+    .cal-day .date-num { font-weight:600; font-size:0.95rem; }
+    .cal-day .day-info { font-size:0.82rem; line-height:1; }
+    .cal-grid { gap:8px; }
+    .cal-empty { background:#fff; }
+    .cal-profit { background: #e6f8ee; border-color:#bde6c9; }
+    .cal-loss { background: #fdecea; border-color:#f3b7b0; }
+    .cal-zero { background:#f1f3f5; border-color:#d6d8db; }
+    .legend .swatch { display:inline-block;width:14px;height:14px;margin-right:6px;border-radius:3px;vertical-align:middle;}
+    .sw-green{background:#2ecc71} .sw-red{background:#e74c3c} .sw-gray{background:#adb5bd} .sw-white{background:#ffffff;border:1px solid #e9ecef}
+    .cal-header { align-items:center; display:flex; justify-content:space-between; gap:8px; }
+    .cal-weekdays { font-size:.85rem; color:#495057; text-align:center; margin-bottom:6px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h4">Forex Trading Journal</h1>
+    <div>
+      <button id="btnAdd" class="btn btn-sm btn-success">Add Trade</button>
+      <button id="btnImport" class="btn btn-sm btn-outline-secondary">Import File</button>
+      <button id="btnExport" class="btn btn-sm btn-outline-dark">Export CSV</button>
+      <button id="btnClear" class="btn btn-sm btn-outline-danger">Clear All</button>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-8">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="card-title">Summary</h6>
+          <div class="row">
+            <div class="col-6 col-md-4 mb-2"><div><strong>Total Trades</strong><div id="statTotal">0</div></div></div>
+            <div class="col-6 col-md-4 mb-2"><div><strong>Win Rate</strong><div id="statWinRate">0%</div></div></div>
+            <div class="col-6 col-md-4 mb-2"><div><strong>Net P/L ($)</strong><div id="statNet">$0.00</div></div></div>
+            <div class="col-6 col-md-4 mb-2"><div><strong>Avg Win ($)</strong><div id="statAvgWin">$0.00</div></div></div>
+            <div class="col-6 col-md-4 mb-2"><div><strong>Avg Loss ($)</strong><div id="statAvgLoss">$0.00</div></div></div>
+            <div class="col-6 col-md-4 mb-2"><div><strong>Expectancy ($/trade)</strong><div id="statExpectancy">$0.00</div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="card-title">Equity Curve</h6>
+          <canvas id="equityChart" height="120"></canvas>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="card-title">P/L by Pair</h6>
+          <canvas id="pairChart" height="120"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="card-title">Quick Add</h6>
+          <form id="quickForm">
+            <div class="mb-2"><input class="form-control form-control-sm" name="pair" placeholder="Pair (EUR/USD)" required></div>
+            <div class="mb-2 d-flex gap-2">
+              <input class="form-control form-control-sm" name="direction" placeholder="Buy/Sell" required>
+              <input class="form-control form-control-sm" name="profit_loss" placeholder="Profit/Loss ($)" required>
+            </div>
+            <button class="btn btn-sm btn-primary" type="submit">Add</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h6 class="card-title">Recent Trades</h6>
+          <ul id="recentList" class="list-group list-group-flush small"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CALENDAR SECTION (replaces All Trades) -->
+  <div class="card mt-4">
+    <div class="card-body">
+      <div class="cal-header mb-2">
+        <div class="d-flex align-items-center gap-2">
+          <button id="prevMonth" class="btn btn-sm btn-outline-secondary">&larr;</button>
+          <div id="calendarTitle" class="fw-semibold"></div>
+          <button id="nextMonth" class="btn btn-sm btn-outline-secondary">&rarr;</button>
+        </div>
+        <div class="legend small">
+          <span class="swatch sw-green"></span><span class="me-2">Profit</span>
+          <span class="swatch sw-red"></span><span class="me-2">Loss</span>
+          <span class="swatch sw-gray"></span><span class="me-2">Break-even</span>
+          <span class="swatch sw-white"></span><span>No trades</span>
+        </div>
+      </div>
+
+      <div id="calendarContainer">
+        <!-- Weekday headers -->
+        <div class="d-grid" style="grid-template-columns: repeat(7,1fr); display:grid; margin-bottom:6px;">
+          <div class="cal-weekdays">Sun</div><div class="cal-weekdays">Mon</div><div class="cal-weekdays">Tue</div>
+          <div class="cal-weekdays">Wed</div><div class="cal-weekdays">Thu</div><div class="cal-weekdays">Fri</div><div class="cal-weekdays">Sat</div>
+        </div>
+        <!-- Grid will be injected here -->
+        <div id="calGrid" class="d-grid cal-grid" style="grid-template-columns: repeat(7,1fr);"></div>
+      </div>
+    </div>
+  </div>
+  <!-- END CALENDAR -->
+
+</div>
+
+<!-- Day details modal -->
+<div class="modal fade" id="dayModal" tabindex="-1">
+  <div class="modal-dialog modal-md">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="dayModalTitle">Trades on ...</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="dayTradesList" class="list-group small"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add / Edit Modal -->
+<div class="modal fade" id="tradeModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalTitle">Add Trade</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="tradeForm">
+          <input type="hidden" name="id">
+          <div class="row g-2">
+            <div class="col-md-3"><input class="form-control form-control-sm" name="date_open" placeholder="Date Open (YYYY-MM-DD)"></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="date_closed" placeholder="Date Closed (YYYY-MM-DD)"></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="pair" placeholder="Pair (EUR/USD)" required></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="direction" placeholder="Buy/Sell" required></div>
+          </div>
+
+          <div class="row g-2 mt-2">
+            <div class="col-md-3"><input class="form-control form-control-sm" name="entry_price" placeholder="Entry Price"></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="exit_price" placeholder="Exit Price"></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="stop_loss" placeholder="Stop Loss"></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="take_profit" placeholder="Take Profit"></div>
+          </div>
+
+          <div class="row g-2 mt-2">
+            <div class="col-md-3"><input class="form-control form-control-sm" name="lot_size" placeholder="Lot Size"></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="pips" placeholder="Pips"></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="profit_loss" placeholder="Profit/Loss ($)" required></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="confidence" placeholder="Confidence (1-10)"></div>
+          </div>
+
+          <div class="mt-2"><input class="form-control form-control-sm" name="setup_type" placeholder="Setup Type"></div>
+          <div class="mt-2"><input class="form-control form-control-sm" name="confluences" placeholder="Confluences"></div>
+          <div class="mt-2"><textarea class="form-control form-control-sm" name="notes" rows="3" placeholder="Notes / Psychology"></textarea></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button id="saveTrade" class="btn btn-primary btn-sm">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".csv,.html,text/csv" style="display:none">
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Client-side Forex Journal with Calendar view
+const STORAGE_KEY = 'forex_journal_calendar_v1';
+let trades = [];
+let editingModal = null;
+
+// calendar state (current shown month)
+let calYear, calMonth; // month: 0-11
+
+// helpers
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+function fmtNumber(n){return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+function save(){localStorage.setItem(STORAGE_KEY, JSON.stringify(trades)); renderAll();}
+function load(){const raw = localStorage.getItem(STORAGE_KEY); trades = raw?JSON.parse(raw):[];}
+
+// CRUD
+function addTrade(t){ t.id = t.id || uid(); trades.push(t); save(); }
+function updateTrade(updated){ trades = trades.map(t=> t.id===updated.id? updated: t); save(); }
+function deleteTrade(id){ trades = trades.filter(t=> t.id!==id); save(); }
+
+// stats & charts (same as before)
+function computeStats(){
+  const total = trades.length;
+  const profits = trades.map(t=>Number(t.profit_loss||0));
+  const wins = profits.filter(p=>p>0);
+  const losses = profits.filter(p=>p<=0);
+  const net = profits.reduce((a,b)=>a+b,0);
+  const winRate = total? (wins.length/total)*100 : 0;
+  const avgWin = wins.length? wins.reduce((a,b)=>a+b,0)/wins.length : 0;
+  const avgLoss = losses.length? losses.reduce((a,b)=>a+b,0)/losses.length : 0;
+  const expectancy = total? ((avgWin*(wins.length/total)) + (avgLoss*(losses.length/total))) : 0;
+  // equity curve
+  const sorted = trades.slice().sort((a,b)=> (a.date_closed||a.date_open||'').localeCompare(b.date_closed||b.date_open||''));
+  let running=0; const labels=[]; const cum=[];
+  for(const t of sorted){ running += Number(t.profit_loss||0); labels.push(t.date_closed||t.date_open||''); cum.push(Number(running.toFixed(2))); }
+  // P/L by pair
+  const bypair = {};
+  for(const t of trades){ bypair[t.pair] = (bypair[t.pair]||0) + Number(t.profit_loss||0); }
+  return { total, net, winRate, avgWin, avgLoss, expectancy, equity:{labels,cum}, bypair }
+}
+
+// charts
+let equityChart=null, pairChart=null;
+function renderStatsAndCharts(){
+  const s = computeStats();
+  document.getElementById('statTotal').textContent = s.total;
+  document.getElementById('statWinRate').textContent = s.winRate.toFixed(2) + '%';
+  document.getElementById('statNet').textContent = '$' + fmtNumber(s.net);
+  document.getElementById('statAvgWin').textContent = '$' + fmtNumber(s.avgWin);
+  document.getElementById('statAvgLoss').textContent = '$' + fmtNumber(s.avgLoss);
+  document.getElementById('statExpectancy').textContent = '$' + fmtNumber(s.expectancy);
+
+  const eqCtx = document.getElementById('equityChart');
+  if(equityChart) equityChart.destroy();
+  equityChart = new Chart(eqCtx, { type:'line', data:{ labels:s.equity.labels, datasets:[{label:'Cumulative P/L ($)', data:s.equity.cum, tension:0.25, fill:false}] }, options:{scales:{y:{beginAtZero:false}}} });
+
+  const pairLabels = Object.keys(s.bypair);
+  const pairData = pairLabels.map(k=>Number(s.bypair[k].toFixed(2)));
+  const pairCtx = document.getElementById('pairChart');
+  if(pairChart) pairChart.destroy();
+  pairChart = new Chart(pairCtx, { type:'bar', data:{ labels:pairLabels, datasets:[{label:'P/L by Pair ($)', data:pairData}] }, options:{ indexAxis:'y' }});
+}
+
+// Calendar functions
+function startCalendarToNow(){
+  const now = new Date();
+  calYear = now.getFullYear();
+  calMonth = now.getMonth();
+}
+
+function buildCalendar(year, month){
+  const calGrid = document.getElementById('calGrid');
+  calGrid.innerHTML = '';
+  const first = new Date(year, month, 1);
+  const last = new Date(year, month+1, 0);
+  const startDow = first.getDay(); // 0..6
+  const daysInMonth = last.getDate();
+
+  // title
+  const options = { year:'numeric', month:'long' };
+  document.getElementById('calendarTitle').textContent = first.toLocaleDateString(undefined, options);
+
+  // create leading blanks
+  for(let i=0;i<startDow;i++){
+    const blank = document.createElement('div');
+    blank.className = 'cal-day cal-empty';
+    blank.innerHTML = '&nbsp;';
+    calGrid.appendChild(blank);
+  }
+
+  // gather daily aggregates by date string YYYY-MM-DD
+  const daily = {}; // date -> {pl: number, count: number, trades: [..]}
+  for(const t of trades){
+    const d = (t.date_closed || t.date_open || '').slice(0,10);
+    if(!d) continue;
+    if(!daily[d]) daily[d] = { pl:0, count:0, trades:[] };
+    daily[d].pl += Number(t.profit_loss || 0);
+    daily[d].count += 1;
+    daily[d].trades.push(t);
+  }
+
+  // generate days
+  for(let day=1; day<=daysInMonth; day++){
+    const dObj = new Date(year, month, day);
+    const dateStr = dObj.toISOString().slice(0,10);
+    const info = daily[dateStr] || null;
+    const cell = document.createElement('div');
+    cell.className = 'cal-day';
+    // color logic
+    if(!info){
+      cell.classList.add('cal-empty'); // white / no trades
+    } else {
+      if (Math.abs(info.pl) < 0.000001) cell.classList.add('cal-zero'); // exactly zero
+      else if (info.pl > 0) cell.classList.add('cal-profit');
+      else if (info.pl < 0) cell.classList.add('cal-loss');
+    }
+    // content
+    const top = document.createElement('div');
+    top.className = 'date-num';
+    top.textContent = day;
+    const bottom = document.createElement('div');
+    bottom.className = 'day-info';
+    if(info){
+      bottom.innerHTML = `<div class="text-truncate">${info.count} trade${info.count>1?'s':''}</div><div class="fw-semibold">$${fmtNumber(info.pl)}</div>`;
+    } else {
+      bottom.innerHTML = `<div class="text-truncate small-muted">No trades</div>`;
+    }
+    cell.appendChild(top);
+    cell.appendChild(bottom);
+
+    // click handler to show modal with trades of the day (if any)
+    cell.addEventListener('click', ()=> {
+      showDayModal(dateStr, info ? info.trades : []);
+    });
+
+    calGrid.appendChild(cell);
+  }
+
+  // fill trailing blanks so grid stays consistent (optional)
+  const totalCells = startDow + daysInMonth;
+  const trailing = (7 - (totalCells % 7)) % 7;
+  for(let i=0;i<trailing;i++){
+    const blank = document.createElement('div');
+    blank.className = 'cal-day cal-empty';
+    blank.innerHTML = '&nbsp;';
+    calGrid.appendChild(blank);
+  }
+}
+
+// day modal
+const dayModal = new bootstrap.Modal(document.getElementById('dayModal'));
+function showDayModal(dateStr, tradesList){
+  document.getElementById('dayModalTitle').textContent = `Trades on ${dateStr}`;
+  const holder = document.getElementById('dayTradesList');
+  holder.innerHTML = '';
+  if(!tradesList || tradesList.length===0){
+    holder.innerHTML = `<div class="text-muted">No trades on this date.</div>`;
+  } else {
+    tradesList.forEach(t=>{
+      const item = document.createElement('div');
+      item.className = 'list-group-item';
+      item.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fw-semibold">${t.pair || ''} — ${t.direction || ''}</div>
+            <div class="small-muted">${t.date_open || ''} → ${t.date_closed || ''} • ${t.pips || 0} pips</div>
+            <div class="small mt-1">${(t.notes || '').slice(0,220)}</div>
+          </div>
+          <div class="text-end">
+            <div class="${Number(t.profit_loss) >= 0 ? 'text-success' : 'text-danger'} fw-bold">$${fmtNumber(t.profit_loss)}</div>
+            <div class="small-muted">lot ${t.lot_size || ''}</div>
+          </div>
+        </div>
+      `;
+      holder.appendChild(item);
+    });
+  }
+  dayModal.show();
+}
+
+// import/export (CSV + HTML from MT) - basic implementations
+function exportCSV(){
+  const header = ["id","date_open","date_closed","pair","direction","lot_size","entry_price","exit_price","stop_loss","take_profit","pips","profit_loss","setup_type","confluences","confidence","notes"];
+  const rows = trades.map(t=> header.map(h=> (t[h]||'') ));
+  const csv = [header.join(',')].concat(rows.map(r=> r.map(cell=> '"'+String(cell).replace(/"/g,'""')+'"').join(','))).join('\n');
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download = 'forex_trades_export.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+function importCSV(text, mode='skip'){
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if(lines.length<2) return alert('No data found');
+  const header = lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim());
+  const newTrades = lines.slice(1).map(l=>{
+    const cols = []; let cur=''; let inq=false;
+    for(let i=0;i<l.length;i++){ const ch=l[i]; if(ch==='"'){ if(inq && l[i+1]==='"'){ cur+='"'; i++; } else inq=!inq; } else if(ch===',' && !inq){ cols.push(cur); cur=''; } else cur+=ch; } cols.push(cur);
+    const obj = {};
+    header.forEach((h,idx)=> obj[h] = cols[idx] ? cols[idx].replace(/^"|"$/g,'') : '');
+    obj.id = obj.id || uid(); obj.profit_loss = Number(obj.profit_loss||0);
+    return obj;
+  });
+  trades = trades.concat(newTrades); save();
+}
+
+// minimal MT HTML parsing (best-effort)
+function parseMTReportHTML(html){
+  try{
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const tables = Array.from(doc.querySelectorAll('table'));
+    let found = null;
+    for(const table of tables){
+      const headerCells = Array.from(table.querySelectorAll('tr')).map(r=> Array.from(r.querySelectorAll('th,td')).map(c=>c.textContent.trim().toLowerCase()));
+      for(const row of headerCells){
+        const joined = row.join('|');
+        if(joined.includes('profit') && (joined.includes('open') || joined.includes('type') || joined.includes('symbol') || joined.includes('price'))){
+          found = table; break;
+        }
+      }
+      if(found) break;
+    }
+    if(!found) return alert('Could not find trade table in the HTML file. Export \"Account History -> Save as Report\" from MT4/MT5 and try again.');
+    // try to find header row
+    const headerRow = Array.from(found.querySelectorAll('tr')).find(r => Array.from(r.querySelectorAll('th,td')).some(c=>/profit/i.test(c.textContent)));
+    const headerTexts = headerRow ? Array.from(headerRow.querySelectorAll('th,td')).map(c=>c.textContent.trim()) : [];
+    const mapKey = h => {
+      const t = (h||'').toLowerCase();
+      if(/ticket|order/.test(t)) return 'ticket';
+      if(/open/.test(t) && /time|date/.test(t)) return 'date_open';
+      if(/close/.test(t) && /time|date/.test(t)) return 'date_closed';
+      if(/symbol|item/.test(t)) return 'pair';
+      if(/type/.test(t)) return 'direction';
+      if(/size|lots|volume/.test(t)) return 'lot_size';
+      if(/open price/.test(t) && !/close/.test(t)) return 'entry_price';
+      if(/close price/.test(t) || (/price/.test(t) && /close/.test(t))) return 'exit_price';
+      if(/s\/l/.test(t)) return 'stop_loss';
+      if(/t\/p/.test(t)) return 'take_profit';
+      if(/profit/.test(t)) return 'profit_loss';
+      return h.replace(/\s+/g,'_').toLowerCase();
+    };
+    const headers = headerTexts.map(mapKey);
+    const rows = Array.from(found.querySelectorAll('tr')).slice(1); // skip header
+    const parsed = [];
+    for(const r of rows){
+      const cols = Array.from(r.querySelectorAll('td')).map(c=>c.textContent.trim());
+      if(cols.length===0) continue;
+      const obj = {};
+      for(let i=0;i<Math.min(cols.length, headers.length); i++){
+        obj[headers[i]] = cols[i];
+      }
+      if(obj.profit_loss) obj.profit_loss = Number(String(obj.profit_loss).replace(/[^0-9\-\.\,]/g,'').replace(',','.')) || 0;
+      if(obj.entry_price) obj.entry_price = Number(String(obj.entry_price).replace(/[^0-9\-\.\,]/g,'').replace(',','.')) || 0;
+      if(obj.exit_price) obj.exit_price = Number(String(obj.exit_price).replace(/[^0-9\-\.\,]/g,'').replace(',','.')) || 0;
+      if(obj.pair) obj.pair = obj.pair.replace(/\s+/g,'').replace(/\./g,'/').toUpperCase();
+      // ensure date string format (try to extract date portion)
+      if(obj.date_closed) obj.date_closed = obj.date_closed.split(' ')[0];
+      if(obj.date_open) obj.date_open = obj.date_open.split(' ')[0];
+      obj.id = uid();
+      parsed.push(obj);
+    }
+    // append parsed trades
+    trades = trades.concat(parsed);
+    save();
+    alert('Imported HTML report — added ' + parsed.length + ' trades (best-effort).');
+  }catch(err){
+    console.error(err);
+    alert('Failed to parse HTML report. See console for details.');
+  }
+}
+
+// file input handling
+const fileInput = document.getElementById('fileInput');
+document.getElementById('btnImport').addEventListener('click', ()=> fileInput.click());
+fileInput.addEventListener('change', e => {
+  const f = e.target.files[0]; if(!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = reader.result;
+    if(f.name.toLowerCase().endsWith('.csv')) importCSV(text);
+    else if(f.name.toLowerCase().endsWith('.html') || /<html/i.test(text)) parseMTReportHTML(text);
+    else {
+      if(text.includes('<table') && /profit/i.test(text.toLowerCase())) parseMTReportHTML(text);
+      else importCSV(text);
+    }
+  };
+  reader.readAsText(f);
+  fileInput.value = '';
+});
+
+// UI events: Add, quick add, calendar nav, save trade
+document.getElementById('btnAdd').addEventListener('click', openAddModal);
+document.getElementById('btnClear').addEventListener('click', ()=>{ if(confirm('Clear all trades? This cannot be undone.')){ trades=[]; save(); }});
+document.getElementById('btnExport').addEventListener('click', exportCSV);
+
+// trade modal
+const tradeModalEl = document.getElementById('tradeModal');
+const tradeModal = new bootstrap.Modal(tradeModalEl);
+function openAddModal(){
+  document.getElementById('modalTitle').textContent = 'Add Trade';
+  document.getElementById('tradeForm').reset();
+  document.querySelector('#tradeForm [name=id]').value = '';
+  tradeModal.show();
+}
+function openEditModal(id){
+  const t = trades.find(x=>x.id===id); if(!t) return;
+  document.getElementById('modalTitle').textContent = 'Edit Trade';
+  const f = document.getElementById('tradeForm');
+  for(const k in t){ if(f.elements[k]) f.elements[k].value = t[k]; }
+  document.querySelector('#tradeForm [name=id]').value = t.id;
+  tradeModal.show();
+}
+document.getElementById('saveTrade').addEventListener('click', ()=>{
+  const form = document.getElementById('tradeForm');
+  const data = {};
+  for(const el of form.elements){ if(el.name){ data[el.name] = el.value; }}
+  if(!data.pair || !data.direction) { alert('Pair and Direction required'); return; }
+  data.profit_loss = Number(data.profit_loss || 0);
+  if(data.id) updateTrade(data); else addTrade(data);
+  tradeModal.hide();
+});
+
+// quick add
+document.getElementById('quickForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const data = { id: uid(), date_open: new Date().toISOString().slice(0,10), date_closed: new Date().toISOString().slice(0,10), pair: fd.get('pair'), direction: fd.get('direction'), profit_loss: Number(fd.get('profit_loss')||0) };
+  addTrade(data);
+  e.target.reset();
+});
+
+// calendar nav handlers
+document.getElementById('prevMonth').addEventListener('click', ()=> {
+  calMonth--; if(calMonth<0){ calMonth=11; calYear--; }
+  buildCalendar(calYear, calMonth);
+});
+document.getElementById('nextMonth').addEventListener('click', ()=> {
+  calMonth++; if(calMonth>11){ calMonth=0; calYear++; }
+  buildCalendar(calYear, calMonth);
+});
+
+// render everything
+function renderAll(){
+  renderStatsAndCharts();
+  buildCalendar(calYear, calMonth);
+  // update recent list
+  const recent = trades.slice().sort((a,b)=> (b.date_closed||b.date_open||'').localeCompare(a.date_closed||a.date_open||'')).slice(0,6);
+  const recentList = document.getElementById('recentList'); recentList.innerHTML='';
+  for(const r of recent){
+    const li = document.createElement('li'); li.className='list-group-item';
+    li.innerHTML = `<div><strong>${r.pair}</strong> — ${r.direction} — $${fmtNumber(r.profit_loss)}</div><div class="small-muted">${r.date_closed||r.date_open||''}</div>`;
+    recentList.appendChild(li);
+  }
+}
+
+// init
+load();
+startCalendarToNow();
+renderAll();
+</script>
+</body>
+</html>
